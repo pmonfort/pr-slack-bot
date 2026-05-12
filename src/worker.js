@@ -245,18 +245,19 @@ function buildCompactBlocks(prs, args) {
 
   const blocks = [headerBlock(args, prs.length), divider()];
 
+  const header = "*Author*  |  *Pull Request*  |  *Age*  |  *Status*  |  *Labels*";
+  const rows = [header];
+
   for (const pr of prs) {
     const labels = pr.labels.map((l) => `\`${l.name}\``).join(" ");
     const age = ageText(pr.created_at);
-    const icon = pr.draft ? ":pencil2:" : ":large_green_circle:";
+    const status = pr.draft ? ":pencil2: draft" : ":large_green_circle: open";
 
-    let line = `${icon}  <${pr.html_url}|#${pr.number} ${pr.title}>`;
-    line += `\n      ${pr.user.login}  ·  ${age}`;
-    if (labels) line += `  ·  ${labels}`;
-
-    blocks.push(context(line));
+    let row = `${pr.user.login}  |  <${pr.html_url}|#${pr.number} ${pr.title}>  |  ${age}  |  ${status}  |  ${labels || "-"}`;
+    rows.push(row);
   }
 
+  blocks.push(section(rows.join("\n")));
   blocks.push(divider());
   blocks.push(
     context(
