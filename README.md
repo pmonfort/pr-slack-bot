@@ -1,172 +1,194 @@
 # PR Slack Bot
 
-Slack slash command that lists open GitHub pull requests on demand with label filtering.
+Slack slash command that lists open GitHub pull requests on demand with label filtering and per-channel default repo configuration.
 
 ## Usage
 
 ```
-/prs owner/repo
-/prs owner/repo label:bug
-/prs owner/repo label:ready-for-review state:open
+/prs                                    -- list PRs for the channel's default repo
+/prs owner/repo                         -- list PRs for a specific repo
+/prs label:bug                          -- filter by label
+/prs owner/repo label:ready-for-review  -- combine repo and label filter
+/prs state:closed                       -- filter by state (open, closed, all)
 ```
 
-**Parameters:**
-- `owner/repo` (required) -- GitHub repository
-- `label:name` -- filter by label (can use multiple)
-- `state:open|closed|all` -- PR state (default: open)
+### Configuration
 
-**Output includes:** PR title with link, author, age, requested reviewers, and labels.
+Set a default repo per channel so you can just type `/prs`:
+
+```
+/prs config repo owner/repo   -- set default repo for this channel
+/prs config show               -- show current config
+/prs config clear              -- remove default repo
+```
+
+**Output includes:** PR number with link, title, author, age, requested reviewers, and labels.
 
 ## How it works
 
-1. User types `/prs pmonfort/horus_qa` in Slack
-2. Slack sends a POST request to the bot
-3. Bot calls GitHub API to fetch matching PRs
-4. Bot formats the response and sends it back to the Slack channel
+1. User types `/prs` in Slack
+2. Slack sends a POST request to the Cloudflare Worker
+3. Worker resolves the repo (from args or channel default stored in KV)
+4. Worker calls GitHub API to fetch matching PRs
+5. Worker formats the response using Slack Block Kit and sends it back
 
-## Setup
+## Setup (step by step)
 
-### 1. Create a GitHub Personal Access Token
-
-1. Go to GitHub > Settings > Developer settings > Personal access tokens > Fine-grained tokens
-2. Click "Generate new token"
-3. Set a name (e.g. "pr-slack-bot") and expiration
-4. Under "Repository access", select the repos you want to query
-5. Under "Permissions", grant **Pull requests** read access
-6. Copy the token
-
-### 2. Create a Slack App
+### Step 1: Create a Slack App
 
 1. Go to https://api.slack.com/apps
-2. Click "Create New App" > "From scratch"
+2. Click **Create New App** > **From scratch**
 3. Name it (e.g. "PR Bot") and select your workspace
-4. Go to **Slash Commands** > "Create New Command":
-   - Command: `/prs`
-   - Request URL: `https://your-server-url/slack/prs` (set after deploying)
-   - Short Description: "List open GitHub PRs"
-   - Usage Hint: `owner/repo [label:name] [state:open|closed|all]`
-5. Go to **Basic Information** > App Credentials, copy the **Signing Secret**
-6. Go to **Install App** and install it to your workspace
+4. Click **Create App**
 
-### 3. Configure environment variables
+### Step 2: Create a Cloudflare account
 
-Copy the example file and fill in your values:
+1. Go to https://dash.cloudflare.com/sign-up
+2. Sign up with email (free, no credit card required)
+
+### Step 3: Create a Cloudflare API Token
+
+The `wrangler login` OAuth flow can fail. Use an API token instead:
+
+1. Go to https://dash.cloudflare.com/profile/api-tokens (My Profile > API Tokens)
+2. Click **Create Token**
+3. Use the **Edit Cloudflare Workers** template
+4. Under **Account Resources**, select your account
+5. Click **Continue to summary** > **Create Token**
+6. Copy the token
+
+### Step 4: Create the KV namespace
+
+KV is Cloudflare's key-value store (free tier: 100k reads/day, 1k writes/day). It stores per-channel config.
 
 ```bash
-cp .env.example .env
+cd ~/project/pr-slack-bot
+export CLOUDFLARE_API_TOKEN=your_token_here
+npx wrangler kv namespace create CONFIG
 ```
 
-```
-GITHUB_TOKEN=ghp_your_token_here
-SLACK_SIGNING_SECRET=your_signing_secret_here
-PORT=3333
+Copy the `id` from the output and paste it in `wrangler.toml`:
+
+```toml
+[[kv_namespaces]]
+binding = "CONFIG"
+id = "your-namespace-id-here"
 ```
 
-### 4. Run locally
+### Step 5: Deploy the Worker
+
+```bash
+npx wrangler deploy
+```
+
+It will output your worker URL:
+
+```
+https://pr-slack-bot.your-subdomain.workers.dev
+```
+
+Verify it works:
+
+```bash
+curl https://pr-slack-bot.your-subdomain.workers.dev/health
+```
+
+Should return `ok`.
+
+### Step 6: Add the Slack Signing Secret
+
+1. In your Slack app settings, go to **Basic Information** > **App Credentials**
+2. Click **Show** next to **Signing Secret** and copy it
+3. In the terminal:
+
+```bash
+npx wrangler secret put SLACK_SIGNING_SECRET
+```
+
+Paste the signing secret when prompted.
+
+### Step 7: Add GitHub Token (only needed for private repos)
+
+For public repos, skip this step. GitHub allows 60 requests/hour without a token.
+
+For private repos:
+
+1. Go to GitHub > Settings > Developer settings > Personal access tokens > Fine-grained tokens
+2. Click **Generate new token**
+3. Set a name (e.g. "pr-slack-bot") and expiration
+4. Under **Repository access**, select the repos you want to query
+5. Under **Permissions**, grant **Pull requests** > Read
+6. Click **Generate token** and copy it
+7. In the terminal:
+
+```bash
+npx wrangler secret put GITHUB_TOKEN
+```
+
+Paste the token when prompted. Secrets apply immediately, no restart needed.
+
+### Step 8: Create the Slash Command
+
+1. In your Slack app settings (https://api.slack.com/apps), select your app
+2. Go to **Slash Commands** > **Create New Command**
+3. Fill in:
+   - **Command:** `/prs`
+   - **Request URL:** `https://pr-slack-bot.your-subdomain.workers.dev/slack/prs`
+   - **Short Description:** List open GitHub PRs
+   - **Usage Hint:** `owner/repo [label:name] [state:open|closed|all]`
+4. Click **Save**
+
+### Step 9: Install the App
+
+1. In Slack app settings, go to **Install App**
+2. Click **Install to Workspace** (or **Reinstall** if already installed)
+3. Click **Allow**
+
+### Step 10: Configure and test
+
+Set the default repo for your channel:
+
+```
+/prs config repo pmonfort/horus_qa
+```
+
+Then just type:
+
+```
+/prs
+```
+
+## Local development
 
 ```bash
 npm install
-npm run dev
+npx wrangler dev
 ```
 
-To test locally, use ngrok to expose the server:
+This starts a local dev server on port 8787. Use ngrok to expose it for Slack testing:
 
 ```bash
-npx ngrok http 3333
+npx ngrok http 8787
 ```
 
-Copy the ngrok URL and update the Slack slash command Request URL to `https://xxxx.ngrok-free.app/slack/prs`.
+Update the Slack slash command Request URL to `https://xxxx.ngrok-free.app/slack/prs`.
 
-## Deploy to a free server
+## Hosting
 
-Two good free options: **Koyeb** (always-on) and **Render** (spins down after 15 min of inactivity).
+Hosted on **Cloudflare Workers** (free tier):
+- 100,000 requests/day
+- No credit card required
+- No cold starts, always-on
+- HTTPS included
+- KV storage for per-channel config (100k reads/day, 1k writes/day)
+- Secrets managed via `npx wrangler secret put <NAME>`
 
----
-
-### Option A: Koyeb (recommended, always-on)
-
-Koyeb has a permanent free tier with no credit card required. The bot stays running 24/7 with no cold starts.
-
-**Step 1: Create a GitHub repo**
-
-```bash
-cd pr-slack-bot
-git init
-git add -A
-git commit -m "initial commit"
-gh repo create pr-slack-bot --private --source=. --push
-```
-
-**Step 2: Sign up at Koyeb**
-
-Go to https://www.koyeb.com and sign up with GitHub.
-
-**Step 3: Create a new service**
-
-1. Click "Create Web Service"
-2. Select "GitHub" as the deployment method
-3. Select your `pr-slack-bot` repository
-4. Set the build and run commands:
-   - Build command: `npm install`
-   - Start command: `node index.js`
-5. Set the port to `3333`
-6. Add environment variables:
-   - `GITHUB_TOKEN` = your token
-   - `SLACK_SIGNING_SECRET` = your signing secret
-   - `PORT` = 3333
-7. Select the free instance type
-8. Click "Deploy"
-
-**Step 4: Update Slack**
-
-Copy the URL Koyeb gives you (e.g. `https://pr-slack-bot-xxxx.koyeb.app`) and update the slash command Request URL in Slack to `https://pr-slack-bot-xxxx.koyeb.app/slack/prs`.
-
----
-
-### Option B: Render (free, sleeps after 15 min)
-
-Render has a permanent free tier. The service spins down after 15 minutes of inactivity. First request after spin-down takes ~30 seconds (Slack retries automatically, so this works fine).
-
-**Step 1: Create a GitHub repo**
-
-Same as Option A above.
-
-**Step 2: Sign up at Render**
-
-Go to https://render.com and sign up with GitHub.
-
-**Step 3: Create a new Web Service**
-
-1. Click "New" > "Web Service"
-2. Connect your `pr-slack-bot` repository
-3. Configure:
-   - Name: `pr-slack-bot`
-   - Runtime: Node
-   - Build command: `npm install`
-   - Start command: `node index.js`
-4. Select the "Free" plan
-5. Add environment variables:
-   - `GITHUB_TOKEN` = your token
-   - `SLACK_SIGNING_SECRET` = your signing secret
-   - `PORT` = 3333
-6. Click "Create Web Service"
-
-**Step 4: Update Slack**
-
-Copy the URL Render gives you (e.g. `https://pr-slack-bot.onrender.com`) and update the slash command Request URL in Slack to `https://pr-slack-bot.onrender.com/slack/prs`.
-
----
-
-## Verify
-
-After deploying, check the health endpoint:
+## Project structure
 
 ```
-curl https://your-server-url/health
-```
-
-Then test in Slack:
-
-```
-/prs pmonfort/horus_qa
+pr-slack-bot/
+  src/worker.js      -- Cloudflare Worker
+  index.js           -- Express server (local dev alternative)
+  wrangler.toml      -- Cloudflare Worker config + KV binding
+  package.json
 ```
