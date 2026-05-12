@@ -16,7 +16,7 @@ function storeRawBody(req, _res, buf) {
 }
 
 function verifySlackSignature(req) {
-  if (!SLACK_SIGNING_SECRET) return true;
+  if (!SLACK_SIGNING_SECRET) return false;
 
   const timestamp = req.headers["x-slack-request-timestamp"];
   const signature = req.headers["x-slack-signature"];
@@ -33,7 +33,10 @@ function verifySlackSignature(req) {
       .update(baseString)
       .digest("hex");
 
-  return crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(signature));
+  const a = Buffer.from(hash);
+  const b = Buffer.from(signature);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
 }
 
 function parseArgs(text) {
@@ -45,7 +48,8 @@ function parseArgs(text) {
     if (part.startsWith("label:")) {
       args.labels.push(part.slice(6));
     } else if (part.startsWith("state:")) {
-      args.state = part.slice(6);
+      const val = part.slice(6);
+      if (["open", "closed", "all"].includes(val)) args.state = val;
     } else if (part.includes("/")) {
       const [owner, repo] = part.split("/");
       args.owner = owner;

@@ -162,6 +162,10 @@ async function resolveArgs(text, channelId, env) {
   return args;
 }
 
+function escMrkdwn(str) {
+  return str.replace(/[&<>*_~`|]/g, (ch) => `&#${ch.charCodeAt(0)};`);
+}
+
 function ageText(createdAt) {
   const days = Math.floor(
     (Date.now() - new Date(createdAt).getTime()) / 86400000,
@@ -177,7 +181,7 @@ function statusIcon(pr) {
 }
 
 function labelTags(pr) {
-  return pr.labels.map((l) => `\`${l.name}\``).join("  ");
+  return pr.labels.map((l) => `\`${escMrkdwn(l.name)}\``).join("  ");
 }
 
 function headerBlock(args, count) {
@@ -212,15 +216,15 @@ function buildDetailedBlocks(prs, args) {
       .map((r) => r.login)
       .join(", ");
 
-    let details = `${status}  |  *${pr.user.login}*  |  ${age}`;
-    if (reviewers) details += `  |  :eyes: ${reviewers}`;
+    let details = `${status}  |  *${escMrkdwn(pr.user.login)}*  |  ${age}`;
+    if (reviewers) details += `  |  :eyes: ${escMrkdwn(reviewers)}`;
     if (labels) details += `\n${labels}`;
 
     blocks.push({
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `<${pr.html_url}|*#${pr.number}  ${pr.title}*>`,
+        text: `<${pr.html_url}|*#${pr.number}  ${escMrkdwn(pr.title)}*>`,
       },
     });
     blocks.push(context(details));
@@ -249,11 +253,11 @@ function buildCompactBlocks(prs, args) {
   const rows = [header];
 
   for (const pr of prs) {
-    const labels = pr.labels.map((l) => `\`${l.name}\``).join(" ");
+    const labels = pr.labels.map((l) => `\`${escMrkdwn(l.name)}\``).join(" ");
     const age = ageText(pr.created_at);
     const status = pr.draft ? ":pencil2: draft" : ":large_green_circle: open";
 
-    let row = `${pr.user.login}  |  <${pr.html_url}|#${pr.number} ${pr.title}>  |  ${age}  |  ${status}  |  ${labels || "-"}`;
+    let row = `${escMrkdwn(pr.user.login)}  |  <${pr.html_url}|#${pr.number} ${escMrkdwn(pr.title)}>  |  ${age}  |  ${status}  |  ${labels || "-"}`;
     rows.push(row);
   }
 
@@ -331,7 +335,7 @@ function context(text) {
 }
 
 async function verifySlackSignature(request, body, secret) {
-  if (!secret) return true;
+  if (!secret) return false;
 
   const timestamp = request.headers.get("x-slack-request-timestamp");
   const signature = request.headers.get("x-slack-signature");
@@ -355,9 +359,14 @@ async function verifySlackSignature(request, body, secret) {
     key,
     encoder.encode(baseString),
   );
-  const hash = "v0=" + bufToHex(sig);
+  const expected = "v0=" + bufToHex(sig);
 
-  return hash === signature;
+  if (expected.length !== signature.length) return false;
+  const a = encoder.encode(expected);
+  const b = encoder.encode(signature);
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i++) mismatch |= a[i] ^ b[i];
+  return mismatch === 0;
 }
 
 function bufToHex(buffer) {
@@ -374,7 +383,8 @@ function parseArgs(text) {
     if (part.startsWith("label:")) {
       args.labels.push(part.slice(6));
     } else if (part.startsWith("state:")) {
-      args.state = part.slice(6);
+      const val = part.slice(6);
+      if (["open", "closed", "all"].includes(val)) args.state = val;
     } else if (part.includes("/")) {
       const [owner, repo] = part.split("/");
       args.owner = owner;
