@@ -47,7 +47,7 @@ async function handleSlackCommand(request, env) {
         section("*Config*"),
         section(
           "`/prs config repo owner/repo` -- set default repo\n" +
-            "`/prs config format detailed|compact` -- set display format\n" +
+            "`/prs config format detailed|compact|table` -- set display format\n" +
             "`/prs config show` -- show current config",
         ),
       ],
@@ -56,10 +56,10 @@ async function handleSlackCommand(request, env) {
 
   try {
     const prs = await fetchPRs(args, env.GITHUB_TOKEN);
-    const blocks =
-      format === "compact"
-        ? buildCompactBlocks(prs, args)
-        : buildDetailedBlocks(prs, args);
+    let blocks;
+    if (format === "compact") blocks = buildCompactBlocks(prs, args);
+    else if (format === "table") blocks = buildTableBlocks(prs, args);
+    else blocks = buildDetailedBlocks(prs, args);
     return jsonResponse({ response_type: "in_channel", blocks });
   } catch (err) {
     return jsonResponse({
@@ -93,10 +93,10 @@ async function handleConfig(text, channelId, env) {
 
   if (subcommand === "format" && parts[1]) {
     const format = parts[1];
-    if (format !== "detailed" && format !== "compact") {
+    if (!["detailed", "compact", "table"].includes(format)) {
       return jsonResponse({
         response_type: "ephemeral",
-        blocks: [section("Format must be `detailed` or `compact`.")],
+        blocks: [section("Format must be `detailed`, `compact`, or `table`.")],
       });
     }
     await env.CONFIG.put(`channel:${channelId}:format`, format);
@@ -134,7 +134,7 @@ async function handleConfig(text, channelId, env) {
       section("*Config commands*"),
       section(
         "`/prs config repo owner/repo` -- set default repo\n" +
-          "`/prs config format detailed|compact` -- set display format\n" +
+          "`/prs config format detailed|compact|table` -- set display format\n" +
           "`/prs config show` -- show current config\n" +
           "`/prs config clear` -- reset all config",
       ),
@@ -258,6 +258,50 @@ function buildCompactBlocks(prs, args) {
   }
 
   blocks.push(section(rows.join("\n")));
+  blocks.push(divider());
+  blocks.push(
+    context(
+      `:github: <https://github.com/${args.owner}/${args.repo}/pulls|View all PRs on GitHub>  |  ${prs.length} result(s)`,
+    ),
+  );
+
+  return blocks;
+}
+
+function buildTableBlocks(prs, args) {
+  if (prs.length === 0) {
+    return [section(`No ${args.state} PRs found.`)];
+  }
+
+  const blocks = [headerBlock(args, prs.length), divider()];
+
+  const pad = (str, len) => str.length >= len ? str.slice(0, len) : str + " ".repeat(len - str.length);
+
+  const colAuthor = 18;
+  const colTitle = 40;
+  const colAge = 6;
+  const colStatus = 6;
+  const colLabels = 20;
+
+  let table = pad("Author", colAuthor) + pad("PR Title", colTitle) + pad("Age", colAge) + pad("Status", colStatus) + "Labels\n";
+  table += "-".repeat(colAuthor + colTitle + colAge + colStatus + colLabels) + "\n";
+
+  for (const pr of prs) {
+    const labels = pr.labels.map((l) => l.name).join(", ");
+    const age = ageText(pr.created_at);
+    const status = pr.draft ? "draft" : "open";
+    const title = `#${pr.number} ${pr.title}`;
+
+    table += pad(pr.user.login, colAuthor) + pad(title, colTitle) + pad(age, colAge) + pad(status, colStatus) + (labels || "-") + "\n";
+  }
+
+  blocks.push(section("```\n" + table + "```"));
+
+  const links = prs
+    .map((pr) => `<${pr.html_url}|#${pr.number}>`)
+    .join("  ");
+  blocks.push(context(`Open:  ${links}`));
+
   blocks.push(divider());
   blocks.push(
     context(
