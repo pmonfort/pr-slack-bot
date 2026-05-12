@@ -275,14 +275,18 @@ function buildTableBlocks(prs, args) {
 
   const blocks = [headerBlock(args, prs.length), divider()];
 
-  const pad = (str, len) => str.length >= len ? str.slice(0, len) : str + " ".repeat(len - str.length);
+  const pad = (str, len) => {
+    if (str.length > len - 3) return str.slice(0, len - 3) + "...";
+    return str + " ".repeat(len - str.length);
+  };
+  const padExact = (str, len) => str.length >= len ? str.slice(0, len) : str + " ".repeat(len - str.length);
 
   const colAuthor = 20;
-  const colTitle = 42;
-  const colAge = 9;
+  const colTitle = 44;
+  const colAge = 10;
   const colStatus = 10;
 
-  let table = pad("Author", colAuthor) + pad("PR Title", colTitle) + pad("Age", colAge) + pad("Status", colStatus) + "Labels\n";
+  let table = padExact("Author", colAuthor) + padExact("PR Title", colTitle) + padExact("Age", colAge) + padExact("Status", colStatus) + "Labels\n";
   table += "-".repeat(colAuthor + colTitle + colAge + colStatus + 20) + "\n";
 
   for (const pr of prs) {
@@ -291,7 +295,7 @@ function buildTableBlocks(prs, args) {
     const status = pr.draft ? "draft" : "open";
     const title = `#${pr.number} ${pr.title}`;
 
-    table += pad(pr.user.login, colAuthor) + pad(title, colTitle) + pad(age, colAge) + pad(status, colStatus) + (labels || "-") + "\n";
+    table += padExact(pr.user.login, colAuthor) + pad(title, colTitle) + padExact(age, colAge) + padExact(status, colStatus) + (labels || "-") + "\n";
   }
 
   blocks.push(section("```\n" + table + "```"));
