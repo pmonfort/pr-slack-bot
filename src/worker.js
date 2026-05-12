@@ -25,10 +25,11 @@ async function handleSlackCommand(request, env) {
   const text = (params.get("text") || "").trim();
   const channelId = params.get("channel_id");
 
-  if (text.startsWith("config ")) {
+  if (text.startsWith("config")) {
     return handleConfig(text, channelId, env);
   }
 
+  const format = await getFormat(channelId, env);
   const args = await resolveArgs(text, channelId, env);
 
   if (!args.owner || !args.repo) {
@@ -40,21 +41,26 @@ async function handleSlackCommand(request, env) {
           "`/prs` -- list PRs for the default repo\n" +
             "`/prs owner/repo` -- list PRs for a specific repo\n" +
             "`/prs label:bug` -- filter by label\n" +
-            "`/prs state:closed` -- filter by state\n" +
-            "`/prs config repo owner/repo` -- set default repo for this channel",
+            "`/prs state:closed` -- filter by state",
         ),
         divider(),
-        context("Run `/prs config repo owner/repo` to set a default."),
+        section("*Config*"),
+        section(
+          "`/prs config repo owner/repo` -- set default repo\n" +
+            "`/prs config format detailed|compact` -- set display format\n" +
+            "`/prs config show` -- show current config",
+        ),
       ],
     });
   }
 
   try {
     const prs = await fetchPRs(args, env.GITHUB_TOKEN);
-    return jsonResponse({
-      response_type: "in_channel",
-      blocks: buildPRBlocks(prs, args),
-    });
+    const blocks =
+      format === "compact"
+        ? buildCompactBlocks(prs, args)
+        : buildDetailedBlocks(prs, args);
+    return jsonResponse({ response_type: "in_channel", blocks });
   } catch (err) {
     return jsonResponse({
       response_type: "ephemeral",
@@ -64,7 +70,7 @@ async function handleSlackCommand(request, env) {
 }
 
 async function handleConfig(text, channelId, env) {
-  const parts = text.replace("config ", "").trim().split(/\s+/);
+  const parts = text.replace("config", "").trim().split(/\s+/).filter(Boolean);
   const subcommand = parts[0];
 
   if (subcommand === "repo" && parts[1]) {
@@ -79,34 +85,46 @@ async function handleConfig(text, channelId, env) {
     return jsonResponse({
       response_type: "ephemeral",
       blocks: [
-        section(`Default repo for this channel set to *${repo}*.`),
+        section(`Default repo set to *${repo}*.`),
         context("Now you can just type `/prs` to list PRs."),
       ],
     });
   }
 
-  if (subcommand === "show") {
-    const repo = await env.CONFIG.get(`channel:${channelId}:repo`);
-    if (repo) {
+  if (subcommand === "format" && parts[1]) {
+    const format = parts[1];
+    if (format !== "detailed" && format !== "compact") {
       return jsonResponse({
         response_type: "ephemeral",
-        blocks: [section(`Default repo: *${repo}*`)],
+        blocks: [section("Format must be `detailed` or `compact`.")],
       });
     }
+    await env.CONFIG.put(`channel:${channelId}:format`, format);
     return jsonResponse({
       response_type: "ephemeral",
-      blocks: [
-        section("No default repo set."),
-        context("Run `/prs config repo owner/repo` to set one."),
-      ],
+      blocks: [section(`Format set to *${format}*.`)],
+    });
+  }
+
+  if (subcommand === "show" || !subcommand) {
+    const repo = await env.CONFIG.get(`channel:${channelId}:repo`);
+    const format = await env.CONFIG.get(`channel:${channelId}:format`);
+    const lines = [
+      `*Default repo:* ${repo || "_not set_"}`,
+      `*Format:* ${format || "detailed"}`,
+    ];
+    return jsonResponse({
+      response_type: "ephemeral",
+      blocks: [section(lines.join("\n"))],
     });
   }
 
   if (subcommand === "clear") {
     await env.CONFIG.delete(`channel:${channelId}:repo`);
+    await env.CONFIG.delete(`channel:${channelId}:format`);
     return jsonResponse({
       response_type: "ephemeral",
-      blocks: [section("Default repo cleared for this channel.")],
+      blocks: [section("Config cleared for this channel.")],
     });
   }
 
@@ -116,11 +134,17 @@ async function handleConfig(text, channelId, env) {
       section("*Config commands*"),
       section(
         "`/prs config repo owner/repo` -- set default repo\n" +
+          "`/prs config format detailed|compact` -- set display format\n" +
           "`/prs config show` -- show current config\n" +
-          "`/prs config clear` -- remove default repo",
+          "`/prs config clear` -- reset all config",
       ),
     ],
   });
+}
+
+async function getFormat(channelId, env) {
+  if (!env.CONFIG) return "detailed";
+  return (await env.CONFIG.get(`channel:${channelId}:format`)) || "detailed";
 }
 
 async function resolveArgs(text, channelId, env) {
@@ -138,7 +162,7 @@ async function resolveArgs(text, channelId, env) {
   return args;
 }
 
-function buildPRBlocks(prs, args) {
+function buildDetailedBlocks(prs, args) {
   const repoName = `${args.owner}/${args.repo}`;
   const labelInfo =
     args.labels.length > 0 ? ` | label: ${args.labels.join(", ")}` : "";
@@ -182,6 +206,38 @@ function buildPRBlocks(prs, args) {
   blocks.push(context(`${prs.length} PR(s) found`));
 
   return blocks;
+}
+
+function buildCompactBlocks(prs, args) {
+  const repoName = `${args.owner}/${args.repo}`;
+  const labelInfo =
+    args.labels.length > 0 ? ` | label: ${args.labels.join(", ")}` : "";
+
+  if (prs.length === 0) {
+    return [section(`No ${args.state} PRs in *${repoName}*${labelInfo}.`)];
+  }
+
+  const lines = prs.map((pr) => {
+    const labels = pr.labels.map((l) => `\`${l.name}\``).join(" ");
+    const age = Math.floor(
+      (Date.now() - new Date(pr.created_at).getTime()) / 86400000,
+    );
+    const ageText =
+      age === 0 ? "today" : age === 1 ? "1d" : `${age}d`;
+    const status = pr.draft ? "draft" : "open";
+
+    let line = `${pr.user.login}  |  <${pr.html_url}|${pr.title}>  |  ${ageText}  |  ${status}`;
+    if (labels) line += `  |  ${labels}`;
+    return line;
+  });
+
+  return [
+    section(`*${repoName}* -- ${prs.length} PR(s)${labelInfo}`),
+    divider(),
+    section(lines.join("\n")),
+    divider(),
+    context(`${prs.length} PR(s)`),
+  ];
 }
 
 function section(text) {

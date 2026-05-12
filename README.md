@@ -14,15 +14,24 @@ Slack slash command that lists open GitHub pull requests on demand with label fi
 
 ### Configuration
 
-Set a default repo per channel so you can just type `/prs`:
+All config is per-channel. Each channel can have its own default repo and display format.
 
 ```
-/prs config repo owner/repo   -- set default repo for this channel
-/prs config show               -- show current config
-/prs config clear              -- remove default repo
+/prs config repo owner/repo        -- set default repo for this channel
+/prs config format detailed|compact -- set display format
+/prs config show                    -- show current config
+/prs config clear                   -- reset all config
 ```
 
-**Output includes:** PR number with link, title, author, age, requested reviewers, and labels.
+### Display formats
+
+**detailed** (default): each PR gets its own block with title, author, age, reviewers, and labels.
+
+**compact**: one line per PR in a flat list:
+
+```
+author  |  PR title (link)  |  age  |  status  |  labels
+```
 
 ## How it works
 
@@ -146,10 +155,11 @@ Paste the token when prompted. Secrets apply immediately, no restart needed.
 
 ### Step 10: Configure and test
 
-Set the default repo for your channel:
+Set the default repo and format for your channel:
 
 ```
 /prs config repo pmonfort/horus_qa
+/prs config format compact
 ```
 
 Then just type:
