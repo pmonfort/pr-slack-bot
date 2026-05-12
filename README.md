@@ -17,20 +17,31 @@ Slack slash command that lists open GitHub pull requests on demand with label fi
 All config is per-channel. Each channel can have its own default repo and display format.
 
 ```
-/prs config repo owner/repo        -- set default repo for this channel
-/prs config format detailed|compact -- set display format
-/prs config show                    -- show current config
-/prs config clear                   -- reset all config
+/prs config repo owner/repo                -- set default repo for this channel
+/prs config format detailed|compact|table  -- set display format
+/prs config show                           -- show current config
+/prs config clear                          -- reset all config
 ```
 
 ### Display formats
 
-**detailed** (default): each PR gets its own block with title, author, age, reviewers, and labels.
+**detailed** (default): each PR in its own block with title link, status icon, author, age, reviewers, and labels. Dividers between PRs.
 
-**compact**: one line per PR in a flat list:
+**compact**: one line per PR with pipe separators and clickable links:
 
 ```
-author  |  PR title (link)  |  age  |  status  |  labels
+author  |  #15 PR title (link)  |  age  |  status  |  labels
+```
+
+**table**: monospace table with aligned columns. Long titles are truncated with `...`. Clickable PR links below the table.
+
+```
+Author              Title                                         Age       Status      Labels
+----------------------------------------------------------------------------------------------
+pmonfort            #15 Tesst                                     today     open        -
+dependabot[bot]     #16 Bump aws-sdk-s3 from 1.220.0 to 1...     today     open        dependencies, ruby
+
+Open:  #15  #16  #17
 ```
 
 ## How it works
