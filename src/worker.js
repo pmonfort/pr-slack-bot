@@ -277,14 +277,13 @@ function buildTableBlocks(prs, args) {
 
   const pad = (str, len) => str.length >= len ? str.slice(0, len) : str + " ".repeat(len - str.length);
 
-  const colAuthor = 18;
-  const colTitle = 40;
-  const colAge = 6;
-  const colStatus = 6;
-  const colLabels = 20;
+  const colAuthor = 20;
+  const colTitle = 42;
+  const colAge = 9;
+  const colStatus = 10;
 
   let table = pad("Author", colAuthor) + pad("PR Title", colTitle) + pad("Age", colAge) + pad("Status", colStatus) + "Labels\n";
-  table += "-".repeat(colAuthor + colTitle + colAge + colStatus + colLabels) + "\n";
+  table += "-".repeat(colAuthor + colTitle + colAge + colStatus + 20) + "\n";
 
   for (const pr of prs) {
     const labels = pr.labels.map((l) => l.name).join(", ");
