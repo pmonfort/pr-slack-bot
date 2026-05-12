@@ -162,82 +162,114 @@ async function resolveArgs(text, channelId, env) {
   return args;
 }
 
-function buildDetailedBlocks(prs, args) {
-  const repoName = `${args.owner}/${args.repo}`;
-  const labelInfo =
-    args.labels.length > 0 ? ` | label: ${args.labels.join(", ")}` : "";
-  const blocks = [];
+function ageText(createdAt) {
+  const days = Math.floor(
+    (Date.now() - new Date(createdAt).getTime()) / 86400000,
+  );
+  if (days === 0) return "today";
+  if (days === 1) return "1d";
+  return `${days}d`;
+}
 
+function statusIcon(pr) {
+  if (pr.draft) return ":pencil2: draft";
+  return ":large_green_circle: open";
+}
+
+function labelTags(pr) {
+  return pr.labels.map((l) => `\`${l.name}\``).join("  ");
+}
+
+function headerBlock(args, count) {
+  const repoName = `${args.owner}/${args.repo}`;
+  const repoUrl = `https://github.com/${args.owner}/${args.repo}/pulls`;
+  const labelInfo =
+    args.labels.length > 0
+      ? `  :label: ${args.labels.join(", ")}`
+      : "";
+  return {
+    type: "header",
+    text: {
+      type: "plain_text",
+      text: `${repoName} -- ${count} open PR(s)`,
+    },
+  };
+}
+
+function buildDetailedBlocks(prs, args) {
   if (prs.length === 0) {
-    blocks.push(section(`No ${args.state} PRs in *${repoName}*${labelInfo}.`));
-    return blocks;
+    return [section(`No ${args.state} PRs found.`)];
   }
 
-  blocks.push(
-    section(`*${repoName}* -- ${prs.length} open PR(s)${labelInfo}`),
-  );
-  blocks.push(divider());
+  const blocks = [headerBlock(args, prs.length), divider()];
 
-  for (const pr of prs) {
-    const labels = pr.labels.map((l) => `\`${l.name}\``).join("  ");
-    const age = Math.floor(
-      (Date.now() - new Date(pr.created_at).getTime()) / 86400000,
-    );
-    const ageText =
-      age === 0 ? "today" : age === 1 ? "1d ago" : `${age}d ago`;
+  for (let i = 0; i < prs.length; i++) {
+    const pr = prs[i];
+    const labels = labelTags(pr);
+    const age = ageText(pr.created_at);
+    const status = statusIcon(pr);
     const reviewers = (pr.requested_reviewers || [])
       .map((r) => r.login)
       .join(", ");
 
-    let meta = `by *${pr.user.login}*  |  ${ageText}`;
-    if (reviewers) meta += `  |  reviewers: ${reviewers}`;
-    if (labels) meta += `  |  ${labels}`;
+    let details = `${status}  |  *${pr.user.login}*  |  ${age}`;
+    if (reviewers) details += `  |  :eyes: ${reviewers}`;
+    if (labels) details += `\n${labels}`;
 
     blocks.push({
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `<${pr.html_url}|*#${pr.number}*  ${pr.title}>\n${meta}`,
+        text: `<${pr.html_url}|*#${pr.number}  ${pr.title}*>`,
       },
     });
+    blocks.push(context(details));
+
+    if (i < prs.length - 1) blocks.push(divider());
   }
 
   blocks.push(divider());
-  blocks.push(context(`${prs.length} PR(s) found`));
+  blocks.push(
+    context(
+      `:github: <https://github.com/${args.owner}/${args.repo}/pulls|View all PRs on GitHub>  |  ${prs.length} result(s)`,
+    ),
+  );
 
   return blocks;
 }
 
 function buildCompactBlocks(prs, args) {
-  const repoName = `${args.owner}/${args.repo}`;
-  const labelInfo =
-    args.labels.length > 0 ? ` | label: ${args.labels.join(", ")}` : "";
-
   if (prs.length === 0) {
-    return [section(`No ${args.state} PRs in *${repoName}*${labelInfo}.`)];
+    return [section(`No ${args.state} PRs found.`)];
   }
 
-  const lines = prs.map((pr) => {
+  const blocks = [headerBlock(args, prs.length), divider()];
+
+  const header =
+    "*Author*            *Pull Request*" +
+    "                                                        " +
+    "*Age*    *Status*    *Labels*";
+  const rows = [header];
+
+  for (const pr of prs) {
     const labels = pr.labels.map((l) => `\`${l.name}\``).join(" ");
-    const age = Math.floor(
-      (Date.now() - new Date(pr.created_at).getTime()) / 86400000,
-    );
-    const ageText =
-      age === 0 ? "today" : age === 1 ? "1d" : `${age}d`;
-    const status = pr.draft ? "draft" : "open";
+    const age = ageText(pr.created_at);
+    const status = pr.draft ? ":pencil2: draft" : ":large_green_circle: open";
 
-    let line = `${pr.user.login}  |  <${pr.html_url}|${pr.title}>  |  ${ageText}  |  ${status}`;
-    if (labels) line += `  |  ${labels}`;
-    return line;
-  });
+    let row = `${pr.user.login}  |  <${pr.html_url}|#${pr.number} ${pr.title}>  |  ${age}  |  ${status}`;
+    if (labels) row += `  |  ${labels}`;
+    rows.push(row);
+  }
 
-  return [
-    section(`*${repoName}* -- ${prs.length} PR(s)${labelInfo}`),
-    divider(),
-    section(lines.join("\n")),
-    divider(),
-    context(`${prs.length} PR(s)`),
-  ];
+  blocks.push(section(rows.join("\n")));
+  blocks.push(divider());
+  blocks.push(
+    context(
+      `:github: <https://github.com/${args.owner}/${args.repo}/pulls|View all PRs on GitHub>  |  ${prs.length} result(s)`,
+    ),
+  );
+
+  return blocks;
 }
 
 function section(text) {
