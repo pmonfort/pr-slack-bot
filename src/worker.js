@@ -403,7 +403,8 @@ async function fetchPRs({ owner, repo, labels, state }, token) {
   );
   url.searchParams.set("state", state);
   url.searchParams.set("per_page", "30");
-  url.searchParams.set("sort", "updated");
+  url.searchParams.set("sort", "created");
+  url.searchParams.set("direction", "asc");
   if (labels.length > 0) url.searchParams.set("labels", labels.join(","));
 
   const headers = {
